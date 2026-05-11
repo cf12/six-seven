@@ -1,0 +1,49 @@
+query stores ($limit: Int, $curr_lat: String, $curr_lon: String, $lat: String, $lon: String, $radius: Float, $dma_id: String, $filters: [String], $brand: String, $exclude_brands: [String], $preferred_grade: String, $country: String, $user_preference: String, $store_id: Int) {
+  stores (limit: $limit, curr_lat: $curr_lat, curr_lon: $curr_lon, lat: $lat, lon: $lon, radius: $radius, dma_id: $dma_id, filters: $filters, brand: $brand, exclude_brands: $exclude_brands, preferred_grade: $preferred_grade, country: $country, user_preference: $user_preference, store_id: $store_id) {
+    id
+    name
+    address
+    city
+    state
+    postal_code
+    country
+    phone
+    location
+    dma_id
+    market_id
+    hours
+    zone_id
+    tz_name
+    is_open_for_business
+    franchise
+    brand {
+      name,
+      slug,
+      logo
+    }
+    fuel_brand {
+      name,
+      slug,
+      logo
+    }
+    services {
+      slug,
+      title,
+      icon,
+      deep_link
+    }
+    fuel_data
+    carwash_data
+    amenities
+    created_at
+    updated_at
+    brand_id
+    fuel_brand_id
+    lat
+    lon
+    distance
+    distance_label
+    store_fuel_discounts_enabled
+    store_fuel_discount
+  }
+}
