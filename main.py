@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import os
+from functools import cache
+from pathlib import Path
 
 import click
 import requests
@@ -30,6 +32,44 @@ s.headers.update(
 )
 
 
+@cache
+def load_stores_query() -> str:
+    with Path(__file__).with_name("stores.graphql").open("r", encoding="utf-8") as query_file:
+        return query_file.read()
+
+
+def normalize_bearer_token(bearer_token: str) -> str:
+    token = bearer_token.strip()
+    if token.lower().startswith("bearer "):
+        return token[7:].strip()
+    return token
+
+
+def find_price_rows(
+    zip_code: str,
+    grade: str | None,
+    radius_miles: float,
+    search_limit: int,
+    bearer_token: str,
+) -> list[dict]:
+    lat, lon = get_zip_coordinates(zip_code)
+    s.headers["Authorization"] = f"Bearer {normalize_bearer_token(bearer_token)}"
+    stores = fetch_stores(
+        lat,
+        lon,
+        radius_miles=radius_miles,
+        search_limit=search_limit,
+        query_text=load_stores_query(),
+    )
+    logger.info("Received %s stores", len(stores))
+
+    normalized_grade = grade if grade and grade.lower() != "none" else None
+    rows = extract_price_rows(stores, grade_filter=normalized_grade)
+    logger.info("Extracted %s priced rows after filtering", len(rows))
+    rows.sort(key=lambda row: row["price_value"])
+    return rows
+
+
 def get_zip_coordinates(zip_code: str) -> tuple[float, float]:
     logger.info("Geocoding ZIP %s...", zip_code)
 
@@ -44,7 +84,7 @@ def get_zip_coordinates(zip_code: str) -> tuple[float, float]:
     raise RuntimeError(f"Unable to geocode ZIP {zip_code}")
 
 
-def update_pricelock(store_id: str, lat: float, lon: float) -> None:
+def update_pricelock(store_id: str, lat: float, lon: float) -> requests.Response:
     logger.info("Unlocking current price lock")
     unlock_response = s.put(
         "https://apis.7-eleven.com/v4/fuel/pricelock/multigrade",
@@ -71,6 +111,12 @@ def update_pricelock(store_id: str, lat: float, lon: float) -> None:
             "Error body: %s",
             lock_response.text,
         )
+    return lock_response
+
+
+def lock_price(store_id: str, lat: float, lon: float, bearer_token: str) -> requests.Response:
+    s.headers["Authorization"] = f"Bearer {normalize_bearer_token(bearer_token)}"
+    return update_pricelock(store_id=store_id, lat=lat, lon=lon)
 
 
 def fetch_stores(
@@ -276,21 +322,17 @@ def main(
     )
 
     try:
-        lat, lon = get_zip_coordinates(zip_code)
-        s.headers["Authorization"] = f"Bearer {bearer_token}"
-        with open("stores.graphql", "r", encoding="utf-8") as query_file:
-            query_text = query_file.read()
-        stores = fetch_stores(
-            lat,
-            lon,
+        if not bearer_token:
+            raise RuntimeError("Bearer token is required")
+
+        bearer_token = normalize_bearer_token(bearer_token)
+        rows = find_price_rows(
+            zip_code=zip_code,
+            grade=grade,
             radius_miles=radius_miles,
             search_limit=search_limit,
-            query_text=query_text,
+            bearer_token=bearer_token,
         )
-        logger.info("Received %s stores", len(stores))
-
-        rows = extract_price_rows(stores, grade_filter=grade)
-        logger.info("Extracted %s priced rows after filtering", len(rows))
         if not rows:
             logger.warning(
                 "No matching fuel prices were returned for the selected ZIP/radius/grade."
@@ -338,9 +380,18 @@ def main(
                     "Missing store_id or coordinates for price lock update"
                 )
 
-            update_pricelock(
-                store_id=store_id, lat=float(lat_value), lon=float(lon_value)
+            lock_response = lock_price(
+                store_id=store_id,
+                lat=float(lat_value),
+                lon=float(lon_value),
+                bearer_token=bearer_token,
             )
+            console.print(
+                f"Lock response: {lock_response.status_code} {lock_response.reason}",
+                style="dim",
+            )
+            if lock_response.text:
+                console.print(lock_response.text, style="dim")
 
         logger.info("Done")
     except Exception:
