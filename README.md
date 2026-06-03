@@ -22,6 +22,12 @@ docker build -t six-seven .
 docker run --rm -p 8000:8000 six-seven
 ```
 
+Or with Docker Compose:
+
+```bash
+docker compose up --build
+```
+
 The web UI will be available at `http://localhost:8000`.
 
 ## Authentication
